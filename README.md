@@ -15,15 +15,17 @@ On an empty command line, **hold Tab**: a panel opens right under your prompt wi
 If you have already typed something, Tab does the normal completion, so you lose nothing.
 
 ```
-╭─ 🌿 you@host:~/Documents/Github/verdant-theme [main] ───────────────────────╮
-│                                                                              │
-│   assets                 versions               verdant3.0.zsh-theme       │
-│   .git                   README.md                                         │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ 3 dossiers   2 fichiers                              relâche Tab pour fermer │
-╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ you@host:~/Documents/Github/verdant-theme [main] ─────────────────────────╮
+│                                                                            │
+│  assets/                versions/              verdant3.0.zsh-theme        │
+│  .git/                  README.md                                          │
+│                                                                            │
+├────────────────────────────────────────────────────────────────────────────┤
+│ 3 dossiers   2 fichiers                            relâche Tab pour fermer │
+╰────────────────────────────────────────────────────────────────────────────╯
 ```
+
+> In a real terminal, every entry gets its icon and the Verdant colors (this preview is plain text).
 
 ### Features
 
