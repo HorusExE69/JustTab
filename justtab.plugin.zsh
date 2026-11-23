@@ -111,8 +111,8 @@ function _justtab_render {
 
 	# ---- header, like the verdant prompt ----
 	local leaf=${VERDANT_LEAF:-🌿}
-	local branch=$(command git symbolic-ref --short HEAD 2>/dev/null \
-		|| command git rev-parse --short HEAD 2>/dev/null)
+	_justtab_branch
+	local branch=$REPLY
 	local who="$_TM_C[blue]${USER:-$(whoami)}$_TM_C[magenta]@$_TM_C[blue]${HOST%%.*}$_TM_C[magenta]:"
 	local git=${branch:+" $_TM_C[cyan][$branch]"}
 	_justtab_width "$leaf $who$git"
@@ -189,17 +189,14 @@ function _justtab_widget {
 		return
 	fi
 
-	(( $+_justtab_timings )) || _justtab_detect_timings
-
 	local key more resp panel line
-	local -F wait=$JUSTTAB_HOLD_DELAY
 	local -A ready
 	local -i kfd=-1 tfd=-1 exact=0
 
+	exec {tfd}<$TTY
 	# Watch the real Tab key (X11): closes the very moment you release it
 	if [[ -n $DISPLAY ]] && _justtab_build_keywatch; then
 		exec {kfd}< <("$_justtab_keywatch" 2>/dev/null)
-		exec {tfd}<$TTY
 		exact=1
 	fi
 
@@ -234,16 +231,25 @@ function _justtab_widget {
 	fi
 	if (( ! exact )); then
 		# No X11: stay open while Tab keeps auto-repeating
-		while read -s -k 1 -t $wait key; do
+		(( $+_justtab_timings )) || _justtab_detect_timings
+		local -F wait=$JUSTTAB_HOLD_DELAY
+		while read -s -k 1 -t $wait -u $tfd key; do
 			if [[ $key != $'\t' ]]; then
-				_justtab_other_key "$key"
+				_justtab_other_key "$key" $tfd
 				break
 			fi
 			wait=$JUSTTAB_REPEAT_GAP
 		done
 	fi
+
+	# Throw away Tab repeats still waiting, or they would reopen the panel
+	while read -s -k 1 -t 0 -u $tfd key; do
+		[[ $key == $'\t' ]] && continue
+		_justtab_other_key "$key" $tfd
+		break
+	done
 	(( kfd >= 0 )) && exec {kfd}<&-
-	(( tfd >= 0 )) && exec {tfd}<&-
+	exec {tfd}<&-
 
 	# Back to the active line (minus the lines the screen scrolled), erase below
 	print -rn -- $'\e8' >$TTY
@@ -256,24 +262,65 @@ function _justtab_widget {
 # (Esc and Ctrl-C just close)
 function _justtab_other_key {
 	local key=$1 more
-	if [[ -n $2 ]]; then
-		while read -s -k 1 -t 0.01 -u $2 more; do key+=$more; done
-	else
-		while read -s -k 1 -t 0.01 more; do key+=$more; done
-	fi
+	while read -s -k 1 -t 0.01 -u $2 more; do key+=$more; done
 	[[ $key != ($'\e'|$'\C-c') ]] && zle -U -- "$key"
 }
 
-# Compile the little X11 key watcher once (needs a C compiler + libX11 headers)
+# Compile the little X11 key watcher (needs a C compiler + libX11 headers).
+# A failed build is only retried once keywatch.c has changed.
 function _justtab_build_keywatch {
 	[[ -x $_justtab_keywatch ]] && return 0
-	(( $+_justtab_keywatch_failed )) && return 1
 	local src=$_justtab_dir/keywatch.c
-	if [[ -r $src ]] && (( $+commands[cc] )) \
-		&& cc -O2 -o $_justtab_keywatch $src -lX11 2>/dev/null; then
+	[[ -r $src ]] && (( $+commands[cc] )) || return 1
+	local -a mt
+	zstat -A mt +mtime -- $src 2>/dev/null
+	[[ $_justtab_keywatch_failed == $mt[1] ]] && return 1
+	cc -O2 -o $_justtab_keywatch $src -lX11 2>/dev/null && return 0
+	typeset -g _justtab_keywatch_failed=$mt[1]
+	return 1
+}
+
+# Git branch without starting git (read .git/HEAD in this folder or above)
+function _justtab_branch {
+	REPLY=
+	local d=$PWD head g
+	while :; do
+		if [[ -f $d/.git/HEAD ]]; then
+			head=$(<$d/.git/HEAD)
+			break
+		elif [[ -f $d/.git ]]; then
+			# worktree / submodule: ".git" is a file pointing to the real dir
+			g=$(<$d/.git)
+			g=${g#gitdir: }
+			[[ $g != /* ]] && g=$d/$g
+			[[ -f $g/HEAD ]] && head=$(<$g/HEAD)
+			break
+		fi
+		[[ $d == / ]] && return
+		d=${d:h}
+	done
+	[[ -z $head ]] && return
+	if [[ $head == 'ref: refs/heads/'* ]]; then
+		REPLY=${head#ref: refs/heads/}
+	else
+		REPLY=${head[1,7]}
+	fi
+}
+
+# `justtab-status`: says which mode JustTab is in, and why
+function justtab-status {
+	if [[ -z $DISPLAY ]]; then
+		print "JustTab: auto-repeat mode (no X11 display: \$DISPLAY is empty)"
+	elif [[ ! -x $_justtab_keywatch ]] && ! _justtab_build_keywatch; then
+		print "JustTab: auto-repeat mode (could not build $_justtab_keywatch;"
+		print "         needs cc and the libX11 headers, e.g. libx11-dev)"
+	elif ! "$_justtab_keywatch" >/dev/null 2>&1; then
+		print "JustTab: auto-repeat mode (keywatch cannot talk to the X server)"
+	else
+		print "JustTab: exact mode, the panel closes the moment you release Tab"
 		return 0
 	fi
-	typeset -g _justtab_keywatch_failed=1
+	print "         closing delay after a short press: ${JUSTTAB_HOLD_DELAY}s"
 	return 1
 }
 
@@ -301,8 +348,12 @@ function _justtab_detect_timings {
 
 zle -N _justtab_widget
 zmodload zsh/zselect 2>/dev/null
+zmodload -F zsh/stat b:zstat 2>/dev/null
 typeset -g _justtab_dir=${0:A:h}
 typeset -g _justtab_keywatch=$_justtab_dir/keywatch
+
+# Build the key watcher now, in the background, so the first Tab is instant
+[[ ! -x $_justtab_keywatch && -n $DISPLAY ]] && { _justtab_build_keywatch &! } 2>/dev/null
 
 # Keep whatever Tab did before (oh-my-zsh may use expand-or-complete-with-dots)
 if [[ -z $_justtab_fallback ]]; then

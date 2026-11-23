@@ -94,7 +94,8 @@ You only need the two delays if the auto-detection gets your keyboard wrong: the
 
 ## 🩺 Troubleshooting
 
-- **The panel takes about half a second to close after a short press**: you are in auto-repeat mode. Check that `echo $DISPLAY` prints something and that `cc` and the libX11 headers are installed, then run `exec zsh`.
+- **The panel takes about half a second to close after a short press**: you are in auto-repeat mode. Run `justtab-status`: it tells you which mode JustTab is in and why. Usually `$DISPLAY` is empty, or `cc` / the libX11 headers are missing.
+- **It still behaves like an old version**: terminals opened before an update keep the old code. Run `exec zsh` in each of them, or open a new one.
 - **Empty squares instead of icons**: your terminal isn't using a Nerd Font.
 - **Tab does nothing special**: another plugin (for example `fzf-tab`) may bind Tab after JustTab. Put `justtab` last in `plugins=(...)`.
 
